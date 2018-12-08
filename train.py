@@ -2,35 +2,12 @@ from utils import *
 import autograd.numpy as np
 from autograd import grad
 from autograd.misc.optimizers import adam
+from sklearn.metrics import log_loss, accuracy_score
 
-#label_count = None
 #labels = ["O", "I-PER", "I-MISC", "B-MISC", "I-LOC", "B-LOC"]
-#pi = [0.167]*label_count
 
-#sentences=None
-#label=None
-vocab_size = None
-
-def constraint_check(transition, emission):
-    
-    num_violations = 0
-    
-    # sum_rows and sum_cols both have to be 1
-    # constraints = 2 x hidden_size
-    num_violations += (np.sum(transition, axis=0) != 1).sum()
-    num_violations += (np.sum(transition, axis=1) != 1).sum()
-    
-    # for every hidden state sum of emitting prob of a word = 1
-    # sum of all columns = 1
-    # constraints = hidden_size
-    num_violations += (np.sum(emission, axis=0) != 1).sum()
-    
-#    print("num_violations = ", num_violations)
-    return num_violations
-    
-
-def create_objective_fn(parameters, iteration_number=1):
-    sentence = np.array(sentences[0])
+def create_objective_fn(parameters, iteration_number=1, inference_mode = False):
+#    sentence = np.array(sentences[0])
     
     #prior probabilities
     pi = parameters[:label_count]
@@ -52,6 +29,7 @@ def create_objective_fn(parameters, iteration_number=1):
     """
     alpha = [[0]*label_count for i in range(len(sentence))]
     beta = [[0]*label_count for i in range(len(sentence))]
+    global gamma
     gamma = [[0]*label_count for i in range(len(sentence))]
 
     for i in range(label_count):
@@ -83,7 +61,9 @@ def create_objective_fn(parameters, iteration_number=1):
         for i in range(label_count):
             gamma[t][i] = gamma[t][i] / temp
     
-    global gamma
+    eps = 1e-15
+    gamma = np.clip(gamma, eps, 1-eps)
+    gamma = gamma/np.sum(gamma, axis = 1)[:,np.newaxis]
     error = 0
 
     # Log loss
@@ -91,23 +71,12 @@ def create_objective_fn(parameters, iteration_number=1):
         for j in range(label_count):
             p = gamma[i][label[i]]
             if j == label[i]:
-                error -= np.log(1-p)
-            else:
                 error -= np.log(p)
+#            elif p > 0:
+#                error -= np.log(p)
 
 #    print("NLL Loss:", error)
-
-    # One-hot encoding not working
-#    true_labels = [[0]*label_count for i in range(len(sentence))]
-#    for i, val in enumerate(label):
-#        true_labels[i][val] = 1
-#
-#    predictions = [[0]*label_count for i in range(len(sentence))]
-#    for i, val in enumerate(y_pred):
-#        predictions[i][val] = 1
-
-#    error = np.sum((y_pred - label)**2)
-
+#    print("Expected: ", log_loss(label, gamma))
     _lambda = 0
     inequalities = []
     
@@ -139,11 +108,26 @@ def create_objective_fn(parameters, iteration_number=1):
     ineq_error = np.dot(lagrangian_params, inequalities)
 
     error = error + ineq_error
+
+    ########### INFERENCE MODE ##########
+    if inference_mode:
+        print(ineq_error, error,lagrangian_params, inequalities)
+        y_pred = np.argmax(np.array(gamma),1)
+#        print("y_pred: ", y_pred)
+#        print("truth: ", label)
+        correct = 0
+        for x,y in zip(y_pred, label):
+            if x == y:
+                correct += 1
+        print("accuracy: ", correct/len(label))
+        acc = correct/len(label)
+        return y_pred
+
     return error
 
 
 def callback(x, i, g):
-    if i%10 == 0:
+    if i%100 == 0 and i>0:
         print("iter#", i, create_objective_fn(x))
 
 
@@ -186,34 +170,45 @@ if __name__ == '__main__':
     init_params = np.concatenate((init_pi, init_trans, init_em))
     
     # random initialization
-    init_params = np.random.uniform(0,1,(1 + len(vocab) + label_count)*label_count)
+#    init_params = np.random.uniform(0,1,(1 + len(vocab) + label_count)*label_count)
     
     lagrangian_params = np.random.uniform(0,1,(2 + len(vocab) + label_count)*label_count)
-    
     init_full_params = np.concatenate((init_params, lagrangian_params))
-    
-    objective_terms = []
-    sentence = np.array(sentences[0])
-    label= np.array(labels[0])
+        
     objective_grad = grad(create_objective_fn)
-    final_params = adam(objective_grad, init_full_params, step_size=0.01, callback=callback,
-                num_iters=100)
-    
+    final_params = init_full_params
+    for epoch in range(100):
+        iid_sample = np.random.randint(0,len(sentences))
+        global sentence
+        sentence = np.array(sentences[iid_sample])
+        global label
+        label = np.array(labels[iid_sample])
+        final_params = adam(objective_grad, final_params, step_size=0.01, callback=callback,
+                    num_iters=1)
+        if epoch%10 == 0:
+            print("iid_sample:", iid_sample, "Error:", create_objective_fn(final_params))
+
     print("********End of training *******")
     print("optimal params")
     print_params(final_params, label_count)
     print("---------------------")
     print("func value: ", create_objective_fn(final_params))
-    print("gamma: ", gamma)
-#    matprint(gamma)
-    y_pred = np.argmax(np.array(gamma),1)
-    print("y_pred: ", y_pred)
-    print("truth: ", label)
-    correct = 0
-    for x,y in zip(y_pred, label):
-        if x == y:
-            correct += 1
-    print("accuracy: ", correct/len(label))
+
+    print("****** INFERENCE *******")
+    predictions = []
+    
+    for i in range(len(sentences)):
+        sentence = np.array(sentences[i])
+        label = np.array(labels[i])
+        pred = create_objective_fn(final_params, inference_mode=True)
+        predictions.append(pred)
+
+    for i, (pred, true) in enumerate(zip(predictions, labels)):
+        print(i, accuracy_score(true, pred))
+        print("predi:", pred)
+        print("truth:", np.array(true))
+        break
+
 
 #Stochastic or Batch gradient descent?
 #what about constraints
