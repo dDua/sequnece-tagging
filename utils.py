@@ -11,7 +11,7 @@ def create_vocabulary(path):
     label_vocab = {}
     sentences = []
     labels = []
-    dataset_limit = 10
+    dataset_limit = 100
     i = 0
     for tokens in open(path).read().split("\n\n"):
         print(tokens)
