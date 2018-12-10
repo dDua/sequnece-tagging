@@ -10,7 +10,6 @@ import random
 #labels = ["O", "I-PER", "I-MISC", "B-MISC", "I-LOC", "B-LOC"]
 
 def create_objective_fn(parameters, iteration_number=1, inference_mode = False):
-#    sentence = np.array(sentences[0])
     
     total_error = 0
     y_preds = []
@@ -111,18 +110,10 @@ def create_objective_fn(parameters, iteration_number=1, inference_mode = False):
         ineq_error = np.dot(lagrangian_params, inequalities)
     
         error = error + ineq_error
-#        print("iter#", iteration_number, sentence_num, error)
         total_error = total_error + error
         ########### INFERENCE MODE ##########
         if inference_mode:
-#            print(ineq_error, error,lagrangian_params, inequalities)
             y_pred = np.argmax(np.array(gamma),1)
-#            print(sentence_num, gamma, y_pred, label)
-            correct = 0
-            for x,y in zip(y_pred, label):
-                if x == y:
-                    correct += 1
-#            print("accuracy: ", correct/len(label))
             y_preds.append(y_pred)
     print("iter#", iteration_number, sentence_num, total_error)
     return y_preds if inference_mode else total_error
@@ -149,10 +140,20 @@ def print_params(parameters, label_count, vocab_size):
     print("transition:")
 #    matprint(pi)
     matprint(transition)
-    print("emission:")
-    matprint(emission)
+#    print("emission:")
+#    matprint(emission)
 #    print("lagrangian:", lagrangian_params)
 #    matprint(lagrangian_params)
+
+def accuracy_stats(accs):
+    hist = {}
+    for l, a in accs:
+        temp = hist.get(l, [])
+        temp.append(a)
+        hist[l] = temp
+    print(hist)
+    for l, a_s in hist.items():
+        print(l, np.median(a_s))
 
 if __name__ == '__main__':
     global sentences, labels
@@ -163,6 +164,7 @@ if __name__ == '__main__':
     label_count = len(label_vocab)
     global vocab_size
     vocab_size = len(vocab)
+    print("size: ", len(vocab))
     init_pi = [1/label_count]*label_count
     init_pi = np.array(init_pi).reshape(label_count)
 
@@ -194,18 +196,40 @@ if __name__ == '__main__':
 #    print("optimal params")
 #    print_params(final_params, label_count, vocab_size)
 #    print("---------------------")
-    print("Total error: ", create_objective_fn(final_params))
+#    print("Total error: ", create_objective_fn(final_params))
 
-    print("****** INFERENCE *******")
-    predictions = create_objective_fn(final_params, inference_mode=True)
-    
-    accs = []
-    for i, (pred, true) in enumerate(zip(predictions, labels)):
+    print("****** INFERENCE on train data *******")
+    train_predictions = create_objective_fn(final_params, inference_mode=True)
+    train_accs = []
+    for i, (pred, true) in enumerate(zip(train_predictions, labels)):
         acc = accuracy_score(true, pred)
-        accs.append((len(pred), acc))
-        print(i, acc)
-        print("predi:", pred)
-        print("truth:", np.array(true))
+        train_accs.append((len(pred), acc))
+#        print(i, acc)
+#        print("predi:", pred)
+#        print("truth:", np.array(true))
+    print("*** Training accuracy ***")
+    print(train_accs)
+    
+    print("****** INFERENCE on test data *******")
+    sentences, labels, vocab, label_vocab = create_vocabulary("./data/files/test", 
+                                                             train_vocab = vocab,
+                                                             train_label_vocab = label_vocab)
+    sentences = np.array(sentences)
+    labels = np.array(labels)
+    print("size: ", len(vocab))
+    test_predictions = create_objective_fn(final_params, inference_mode=True)
+    test_accs = []
+    for i, (pred, true) in enumerate(zip(test_predictions, labels)):
+        print(pred, true)
+        acc = accuracy_score(true, pred)
+        test_accs.append((len(pred), acc))
+#        print(i, acc)
+#        print("predi:", pred)
+#        print("truth:", np.array(true))
+    print("*** Test accuracy ***")
+    print(test_accs)
+    
+
 
 
 #Stochastic or Batch gradient descent?
